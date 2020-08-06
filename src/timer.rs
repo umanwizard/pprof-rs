@@ -21,14 +21,22 @@ extern "C" {
     fn setitimer(which: c_int, new_value: *mut Itimerval, old_value: *mut Itimerval) -> c_int;
 }
 
-const ITIMER_PROF: c_int = 2;
+const ITIMER_REAL: isize = 0;
+const ITIMER_PROF: isize = 2;
+
+#[derive(Copy, Clone)]
+pub enum TimerStyle {
+    WallClock = ITIMER_REAL,
+    Cpu = ITIMER_PROF,
+}
 
 pub struct Timer {
     _frequency: c_int,
+    style: TimerStyle,
 }
 
 impl Timer {
-    pub fn new(frequency: c_int) -> Timer {
+    pub fn new(frequency: c_int, style: TimerStyle) -> Timer {
         let interval = 1e6 as i64 / i64::from(frequency);
         let it_interval = Timeval {
             tv_sec: interval / 1e6 as i64,
@@ -38,7 +46,7 @@ impl Timer {
 
         unsafe {
             setitimer(
-                ITIMER_PROF,
+                style as c_int,
                 &mut Itimerval {
                     it_interval,
                     it_value,
@@ -49,6 +57,7 @@ impl Timer {
 
         Timer {
             _frequency: frequency,
+            style,
         }
     }
 }
@@ -62,7 +71,7 @@ impl Drop for Timer {
         let it_value = it_interval.clone();
         unsafe {
             setitimer(
-                ITIMER_PROF,
+                self.style as c_int,
                 &mut Itimerval {
                     it_interval,
                     it_value,

@@ -11,7 +11,7 @@ use crate::collector::Collector;
 use crate::error::{Error, Result};
 use crate::frames::UnresolvedFrames;
 use crate::report::ReportBuilder;
-use crate::timer::Timer;
+use crate::timer::{Timer, TimerStyle};
 use crate::{MAX_DEPTH, MAX_THREAD_NAME};
 
 lazy_static::lazy_static! {
@@ -37,8 +37,7 @@ fn trigger_lazy() {
 }
 
 impl ProfilerGuard<'_> {
-    /// Start profiling with given sample frequency.
-    pub fn new(frequency: c_int) -> Result<ProfilerGuard<'static>> {
+    fn new_inner(frequency: c_int, style: TimerStyle) -> Result<ProfilerGuard<'static>> {
         trigger_lazy();
 
         match PROFILER.write().as_mut() {
@@ -49,11 +48,20 @@ impl ProfilerGuard<'_> {
             Ok(profiler) => match profiler.start() {
                 Ok(()) => Ok(ProfilerGuard::<'static> {
                     profiler: &PROFILER,
-                    timer: Some(Timer::new(frequency)),
+                    timer: Some(Timer::new(frequency, style)),
                 }),
                 Err(err) => Err(err),
             },
         }
+    }
+    /// Start CPU profiling with given sample frequency (in Hz).
+    pub fn new(frequency: c_int) -> Result<ProfilerGuard<'static>> {
+        Self::new_inner(frequency, TimerStyle::Cpu)
+    }
+
+    /// Start wall clock profiling with given sample frequency (in Hz).
+    pub fn new_wall(frequency: c_int) -> Result<ProfilerGuard<'static>> {
+        Self::new_inner(frequency, TimerStyle::WallClock)
     }
 
     /// Generate a report
@@ -194,6 +202,7 @@ impl Profiler {
     fn register_signal_handler(&self) -> Result<()> {
         let handler = signal::SigHandler::Handler(perf_signal_handler);
         unsafe { signal::signal(signal::SIGPROF, handler) }?;
+        unsafe { signal::signal(signal::SIGALRM, handler) }?;
 
         Ok(())
     }
@@ -201,6 +210,7 @@ impl Profiler {
     fn unregister_signal_handler(&self) -> Result<()> {
         let handler = signal::SigHandler::SigDfl;
         unsafe { signal::signal(signal::SIGPROF, handler) }?;
+        unsafe { signal::signal(signal::SIGALRM, handler) }?;
 
         Ok(())
     }
